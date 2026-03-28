@@ -4,12 +4,10 @@ import numpy as np
 from PIL import Image, ImageEnhance
 import io
 import gc
-from streamlit_cropper import st_cropper # Nhập thư viện cắt ảnh xịn
+from streamlit_cropper import st_cropper
 
-# --- CẤU HÌNH TRANG ---
-st.set_page_config(page_title="Scanner Linh Linh Pro Max", page_icon="📑", layout="wide")
-
-# --- HÀM XỬ LÝ LÕI ---
+# --- CẤU HÌNH ---
+st.set_page_config(page_title="Linh Linh Smart Scanner", page_icon="📑", layout="wide")
 
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -35,21 +33,20 @@ def perspective_transform(image, pts):
     return cv2.warpPerspective(image, M, (maxWidth, maxHeight))
 
 def apply_filters(warped_img, mode):
-    """Sửa màu ảnh: Trắng đen siêu nét vs Giữ màu"""
+    """Giữ nguyên bộ lọc sửa màu trắng đen bà ưng ý"""
     if mode == "Quét Trắng Đen (B&W)":
         gray = cv2.cvtColor(warped_img, cv2.COLOR_BGR2GRAY)
         denoised = cv2.bilateralFilter(gray, 9, 75, 75)
         thresh = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 11)
         return Image.fromarray(thresh).convert('RGB')
-    else: # Giữ màu
+    else:
         img_rgb = cv2.cvtColor(warped_img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(img_rgb)
-        pil_img = ImageEnhance.Contrast(pil_img).enhance(1.5)
-        pil_img = ImageEnhance.Sharpness(pil_img).enhance(1.5)
+        pil_img = ImageEnhance.Contrast(pil_img).enhance(1.4)
         return pil_img
 
-def auto_flatten(file_bytes):
-    """Bước quét và nắn thẳng TỰ ĐỘNG"""
+def auto_process(file_bytes):
+    """Hàm tự động quét và nắn thẳng không cần hỏi"""
     nparr = np.frombuffer(file_bytes, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
@@ -68,102 +65,64 @@ def auto_flatten(file_bytes):
             break
 
     warped = perspective_transform(image, screenCnt.reshape(4, 2)) if screenCnt is not None else image
+    
+    # Tự động xoay đứng
+    h, w = warped.shape[:2]
+    if w > h:
+        warped = cv2.rotate(warped, cv2.ROTATE_90_CLOCKWISE)
     return warped
 
-# --- GIAO DIỆN CHÍNH ---
-st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>📑 Scanner Linh Linh Super Pro</h1>", unsafe_allow_html=True)
-st.write("---")
+# --- GIAO DIỆN ---
+st.markdown("<h1 style='text-align: center; color: #1E88E5;'>📄 Scanner Linh Linh - Tự động & Thông minh</h1>", unsafe_allow_html=True)
 
-uploaded_files = st.file_uploader("📤 Chọn ảnh tài liệu của bà Linh", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
+uploaded_files = st.file_uploader("📤 Thêm ảnh vào đây bà ơi", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
 
 if uploaded_files:
-    num_files = len(uploaded_files)
     final_pages = []
     
-    st.subheader("🛠️ Cắt, Xoay & Duyệt từng trang")
+    st.subheader("📸 Xem trước & Chỉnh sửa (Nếu cần)")
 
-    # Bà kiểm tra từng tấm một trong cái "thẻ" Expander này
     for i, file in enumerate(uploaded_files):
-        with st.expander(f"Trang {i+1} - {file.name}", expanded=(i == 0)):
-            # Tải ảnh gốc bằng PIL (streamlit-cropper yêu cầu)
-            pil_original = Image.open(file)
+        with st.expander(f"Trang {i+1}: {file.name}", expanded=(i == 0)):
             
-            st.write("👉 **Bước 1: Cắt ảnh (Crop).** Bà dùng chuột kéo cái khung trắng để chọn vùng tờ giấy nhé.")
+            # Ô tích chọn: Có muốn cắt tay không?
+            use_manual_crop = st.checkbox("Tự cắt vùng ảnh (Chỉ dùng khi máy quét sai)", key=f"check_{i}")
             
-            # CÔNG CỤ CẮT ẢNH XỊN
-            # Nó sẽ hiện ra cái khung cho bà kéo thả. Ảnh bà cắt xong sẽ lưu vào `pil_cropped`.
-            pil_cropped = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', aspect_ratio=None, key=f"crop_{i}")
-            
-            # Giải phóng RAM ảnh gốc
-            del pil_original 
-
             col_img, col_ctrl = st.columns([2, 1])
             
             with col_ctrl:
-                st.write("👉 **Bước 2: Chỉnh sửa nâng cao.**")
-                
-                flatten_mode = st.radio(f"Làm phẳng tờ giấy (Trang {i+1})", 
-                                       ["Tự động nắn thẳng (OpenCV)", "Cắt sao giữ vậy"], 
-                                       key=f"flat_{i}")
-                
-                color_mode = st.radio(f"Chọn màu (Trang {i+1})", 
-                                     ["Quét Trắng Đen (B&W)", "Giữ màu gốc (Color)"], 
-                                     key=f"mode_{i}")
-                
-                rotate_extra = st.selectbox(f"Xoay lại hướng nếu máy đoán sai (Trang {i+1})", 
-                                           ["Không xoay", "90°", "180°", "270°"], 
-                                           key=f"rot_{i}")
+                color_mode = st.radio(f"Màu sắc", ["Quét Trắng Đen (B&W)", "Giữ màu gốc"], key=f"m_{i}")
+                rotate_extra = st.selectbox(f"Xoay thêm", ["Không", "90°", "180°", "270°"], key=f"r_{i}")
 
-            # 1. Chuyển ảnh đã cắt (PIL) sang OpenCV để làm phẳng (nếu bà chọn)
-            img_to_process = np.array(pil_cropped.convert('RGB')) # PIL -> Numpy RGB
-            img_to_process = cv2.cvtColor(img_to_process, cv2.COLOR_RGB2BGR) # RGB -> BGR (OpenCV)
-
-            # 2. Làm phẳng / Nắn thẳng
-            if flatten_mode == "Tự động nắn thẳng (OpenCV)":
-                # Chuyển ngược lại file bytes tạm thời (OpenCV nắn thẳng từ file bytes)
-                _, buffer = cv2.imencode('.jpg', img_to_process)
-                bytes_temp = buffer.tobytes()
-                warped_raw = auto_flatten(bytes_temp)
-                
-                # Tự động xoay đứng nếu máy phát hiện ảnh nằm ngang
-                h, w = warped_raw.shape[:2]
-                if w > h:
-                    warped_raw = cv2.rotate(warped_raw, cv2.ROTATE_90_CLOCKWISE)
+            if use_manual_crop:
+                # Nếu bà muốn cắt tay
+                st.write("📍 *Bà kéo khung để chọn vùng nhé:*")
+                pil_raw = Image.open(file)
+                cropped_img = st_cropper(pil_raw, realtime_update=True, box_color='#FF0000', aspect_ratio=None, key=f"crop_{i}")
+                # Chuyển sang OpenCV để áp dụng filter
+                img_cv = cv2.cvtColor(np.array(cropped_img.convert('RGB')), cv2.COLOR_RGB2BGR)
             else:
-                # Nếu "Cắt sao giữ vậy", app sẽ giữ nguyên góc bà cắt, ko nắn thẳng.
-                warped_raw = img_to_process
+                # MẶC ĐỊNH: Tự động hoàn toàn
+                img_cv = auto_process(file.getvalue())
 
-            # 3. Áp dụng filter màu (Dựa trên ảnh đã nắn thẳng hoặc ảnh cắt)
-            final_pil = apply_filters(warped_raw, color_mode)
-            
-            # 4. Áp dụng xoay thủ công nếu bà chọn
+            # Áp dụng màu và xoay
+            final_pil = apply_filters(img_cv, color_mode)
             if rotate_extra == "90°": final_pil = final_pil.rotate(-90, expand=True)
             elif rotate_extra == "180°": final_pil = final_pil.rotate(180)
             elif rotate_extra == "270°": final_pil = final_pil.rotate(90, expand=True)
 
             with col_img:
-                st.image(final_pil, use_column_width=True, caption=f"Ảnh chốt Trang {i+1}")
+                st.image(final_pil, use_column_width=True, caption="Kết quả trang này")
             
             final_pages.append(final_pil)
-            del pil_cropped, img_to_process, warped_raw
-            gc.collect()
 
-    # --- XUẤT PDF ---
+    # --- NÚT GOM PDF ---
     st.write("---")
-    if st.button("🚀 GOM TẤT CẢ VÀ TẠO PDF PRO MAX", use_container_width=True, type="primary"):
+    if st.button("🚀 XUẤT FILE PDF NGAY", use_container_width=True, type="primary"):
         if final_pages:
-            with st.spinner("Đang đóng gói..."):
-                pdf_io = io.BytesIO()
-                # Resolution 300 DPI cho siêu nét
-                final_pages[0].save(pdf_io, format="PDF", save_all=True, append_images=final_pages[1:], resolution=300.0, quality=95)
-                
-                st.balloons()
-                st.download_button(
-                    label="📥 TẢI FILE PDF CỦA BÀ TẠI ĐÂY",
-                    data=pdf_io.getvalue(),
-                    file_name="LinhLinh_Pro_Document.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-                
-                
+            pdf_io = io.BytesIO()
+            final_pages[0].save(pdf_io, format="PDF", save_all=True, append_images=final_pages[1:], resolution=300.0)
+            st.balloons()
+            st.download_button(label="📥 TẢI FILE PDF VỀ MÁY", data=pdf_io.getvalue(), file_name="Scanner_LinhLinh.pdf", mime="application/pdf", use_container_width=True)
+
+gc.collect()
