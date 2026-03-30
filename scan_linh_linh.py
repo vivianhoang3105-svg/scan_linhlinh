@@ -41,13 +41,20 @@ def apply_auto_rotate_stand(image_cv):
     return image_cv
 
 def auto_scan_logic(file_bytes):
-    pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
-    pil_original = ImageOps.exif_transpose(pil_original)
+    # Dùng thuật toán Ánh xạ tỷ lệ cho Tự động quét (Nét căng 24MP)
+    pil_orig = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+    pil_orig = ImageOps.exif_transpose(pil_orig)
+    orig_w, orig_h = pil_orig.size
     
-    pil_original.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
+    pil_thumb = pil_orig.copy()
+    pil_thumb.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
+    thumb_w, thumb_h = pil_thumb.size
     
-    image = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    ratio_w = orig_w / thumb_w
+    ratio_h = orig_h / thumb_h
+    
+    image_thumb = cv2.cvtColor(np.array(pil_thumb), cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(image_thumb, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edged = cv2.Canny(blurred, 50, 150)
 
@@ -58,14 +65,19 @@ def auto_scan_logic(file_bytes):
     for c in cnts:
         peri = cv2.arcLength(c, True)
         approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-        if len(approx) == 4 and cv2.contourArea(c) > (image.shape[0] * image.shape[1] / 15):
+        if len(approx) == 4 and cv2.contourArea(c) > (image_thumb.shape[0] * image_thumb.shape[1] / 15):
             screenCnt = approx
             break
 
+    cv_orig = cv2.cvtColor(np.array(pil_orig), cv2.COLOR_RGB2BGR)
     if screenCnt is not None:
-        warped = perspective_transform(image, screenCnt.reshape(4, 2))
+        # Nhân tỷ lệ tọa độ lên ảnh gốc
+        screenCnt_real = screenCnt.astype("float32")
+        screenCnt_real[:, 0, 0] *= ratio_w
+        screenCnt_real[:, 0, 1] *= ratio_h
+        warped = perspective_transform(cv_orig, screenCnt_real.reshape(4, 2))
     else:
-        warped = image
+        warped = cv_orig
 
     return apply_auto_rotate_stand(warped)
 
@@ -78,21 +90,16 @@ def apply_filters_and_brightness(warped_img_cv, mode, brightness_val):
 
     if mode == "Quét Trắng Đen (B&W)":
         pil_img = pil_img.convert('L')
-        # Tự động bù sáng nhẹ để nền giấy luôn trắng bóc mà không cần chỉnh tay
         if brightness_val == 1.0:
             pil_img = ImageEnhance.Brightness(pil_img).enhance(1.2)
-        
-        # Tăng tương phản ở mức vừa phải (1.8 thay vì 2.2 như trước)
         pil_img = ImageEnhance.Contrast(pil_img).enhance(1.8)
-        
-        # BỎ HOÀN TOÀN HÀM LÀM NÉT (Sharpness) ĐỂ KHÔNG BỊ NHIỄU HẠT LẤM TẤM NỮA
         return pil_img.convert('RGB')
     else:
         pil_img = ImageEnhance.Contrast(pil_img).enhance(1.2)
         return pil_img
 
 # --- GIAO DIỆN CHÍNH ---
-st.markdown("<h1 style='text-align: center; color: #E91E63;'>👑 Máy Quét VIP Linh Linh</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #E91E63;'>👑 VIP Scanner Đẳng Cấp 24MP</h1>", unsafe_allow_html=True)
 
 uploaded_files = st.file_uploader("📤 Thêm ảnh vào đây", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
 
@@ -125,19 +132,37 @@ if uploaded_files:
             with col_img:
                 if manual_mode:
                     if "Kéo khung" in tool_choice:
-                        st.info("📲 Kéo khung để chọn vùng (Cắt xong máy sẽ xử lý).")
+                        st.info("📲 Kéo khung để chọn vùng (Cắt trên bản nháp, xử lý trên bản gốc).")
                         
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
+                        orig_w, orig_h = pil_original.size
                         
-                        # --- FIX TRÀN LỀ TUYỆT ĐỐI ---
-                        # Ép chiều ngang về 500px để lọt thỏm vào mọi màn hình điện thoại
-                        pil_original.thumbnail((500, 800), Image.Resampling.LANCZOS)
+                        # Bản nháp hiển thị: Ép cứng chiều rộng 350px để lọt 100% màn hình đt
+                        pil_display = pil_original.copy()
+                        pil_display.thumbnail((350, 2000), Image.Resampling.LANCZOS)
+                        disp_w, disp_h = pil_display.size
+                        
+                        ratio_w = orig_w / disp_w
+                        ratio_h = orig_h / disp_h
                         
                         try:
-                            cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', aspect_ratio=None, key=f"cropper_{i}")
-                            img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
+                            # Thay vì lấy ảnh, ta lấy "Tọa độ hộp cắt" từ bản nháp
+                            box = st_cropper(pil_display, realtime_update=True, box_color='#FF0000', aspect_ratio=None, return_type='box', key=f"cropper_{i}")
+                            
+                            if box:
+                                # Ánh xạ tọa độ bản nháp lên ảnh gốc siêu nét
+                                real_left = int(box['left'] * ratio_w)
+                                real_top = int(box['top'] * ratio_h)
+                                real_right = int((box['left'] + box['width']) * ratio_w)
+                                real_bottom = int((box['top'] + box['height']) * ratio_h)
+                                
+                                cropped_pil_real = pil_original.crop((real_left, real_top, real_right, real_bottom))
+                                img_cv_base = cv2.cvtColor(np.array(cropped_pil_real), cv2.COLOR_RGB2BGR)
+                            else:
+                                img_cv_base = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
+                                
                         except Exception:
                             st.warning("Đang tải khung, đợi 1 giây nha...")
                             img_cv_base = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
@@ -150,12 +175,20 @@ if uploaded_files:
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
-                        pil_original.thumbnail((800, 1200), Image.Resampling.LANCZOS)
-                        cv_original = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
+                        orig_w, orig_h = pil_original.size
+                        
+                        pil_display = pil_original.copy()
+                        pil_display.thumbnail((800, 1200), Image.Resampling.LANCZOS)
+                        disp_w, disp_h = pil_display.size
+                        
+                        ratio_w = orig_w / disp_w
+                        ratio_h = orig_h / disp_h
+                        
+                        cv_display = cv2.cvtColor(np.array(pil_display), cv2.COLOR_RGB2BGR)
                         
                         for pt in st.session_state[file_key]:
-                            cv2.circle(cv_original, pt, max(10, int(cv_original.shape[1]/50)), (0, 0, 255), -1)
-                        pil_to_show = Image.fromarray(cv2.cvtColor(cv_original, cv2.COLOR_BGR2RGB))
+                            cv2.circle(cv_display, pt, max(5, int(cv_display.shape[1]/50)), (0, 0, 255), -1)
+                        pil_to_show = Image.fromarray(cv2.cvtColor(cv_display, cv2.COLOR_BGR2RGB))
                         
                         value = streamlit_image_coordinates(pil_to_show, key=f"coord_{i}")
                         
@@ -170,13 +203,17 @@ if uploaded_files:
                             st.rerun()
 
                         if len(st.session_state[file_key]) == 4:
-                            pts = np.array(st.session_state[file_key], dtype="float32")
-                            warped_manual = perspective_transform(cv_original, pts)
+                            # Ánh xạ tọa độ chấm lên ảnh gốc
+                            real_pts = [(int(pt[0]*ratio_w), int(pt[1]*ratio_h)) for pt in st.session_state[file_key]]
+                            pts = np.array(real_pts, dtype="float32")
+                            
+                            cv_original_real = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
+                            warped_manual = perspective_transform(cv_original_real, pts)
                             img_cv_final = apply_auto_rotate_stand(warped_manual)
                             st.success("Đã khóa 4 góc!")
                         else:
                             st.warning(f"Đã chấm {len(st.session_state[file_key])}/4 góc.")
-                            img_cv_final = apply_auto_rotate_stand(cv_original)
+                            img_cv_final = apply_auto_rotate_stand(cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR))
                 else:
                     img_cv_final = auto_scan_logic(file.getvalue())
 
@@ -198,7 +235,8 @@ if uploaded_files:
                 file_name_custom = f"VIP_Scan_{now}.pdf"
 
                 pdf_io = io.BytesIO()
-                final_pages[0].save(pdf_io, format="PDF", save_all=True, append_images=final_pages[1:], resolution=300.0, quality=95)
+                # Tăng quality lên 100 để giữ nguyên độ phân giải
+                final_pages[0].save(pdf_io, format="PDF", save_all=True, append_images=final_pages[1:], resolution=300.0, quality=100)
                 
                 st.balloons()
                 st.success(f"Hoàn tất! Tên file: {file_name_custom}")
