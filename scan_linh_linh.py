@@ -44,8 +44,8 @@ def auto_scan_logic(file_bytes):
     pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
     pil_original = ImageOps.exif_transpose(pil_original)
     
-    # Tối ưu ảnh trước khi quét tự động cho nhanh
-    pil_original.thumbnail((1500, 1500))
+    # Nén ảnh để OpenCV quét viền nhanh hơn
+    pil_original.thumbnail((1200, 1200))
     
     image = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
     
@@ -128,15 +128,17 @@ if uploaded_files:
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
                         
-                        # --- CHỐNG LỖI TYPE ERROR TRÊN IPHONE ---
-                        # Thu nhỏ ảnh lại mức an toàn để Canvas web không bị sập
-                        pil_original.thumbnail((1500, 1500))
+                        # --- TRỊ BỆNH TRÀN MÀN HÌNH ĐIỆN THOẠI ---
+                        # Ép ảnh về chuẩn chiều ngang 700px để nằm gọn lỏn trong màn hình
+                        pil_original.thumbnail((700, 1000))
                         
                         try:
-                            cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', key=f"cropper_{i}")
+                            # --- TRỊ BỆNH KHUNG BỊ CỨNG ---
+                            # aspect_ratio=None giúp khung đỏ kéo thả hình chữ nhật vô tư
+                            cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', aspect_ratio=None, key=f"cropper_{i}")
                             img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
                         except Exception:
-                            st.warning("Khung đang tải, đợi chút nha...")
+                            st.warning("Đang tải khung, đợi 1 giây nha...")
                             img_cv_base = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
 
                         img_cv_final = apply_auto_rotate_stand(img_cv_base)
@@ -147,13 +149,11 @@ if uploaded_files:
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
-                        
-                        # Thu nhỏ ảnh trên máy tính cho nhẹ
-                        pil_original.thumbnail((1500, 1500))
+                        pil_original.thumbnail((800, 1200))
                         cv_original = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
                         
                         for pt in st.session_state[file_key]:
-                            cv2.circle(cv_original, pt, max(15, int(cv_original.shape[1]/50)), (0, 0, 255), -1)
+                            cv2.circle(cv_original, pt, max(10, int(cv_original.shape[1]/50)), (0, 0, 255), -1)
                         pil_to_show = Image.fromarray(cv2.cvtColor(cv_original, cv2.COLOR_BGR2RGB))
                         
                         value = streamlit_image_coordinates(pil_to_show, key=f"coord_{i}")
