@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageOps # Nhập thêm ImageOps để trị bệnh xoay ngang
 import io
 import gc
 from streamlit_image_coordinates import streamlit_image_coordinates 
@@ -43,8 +43,11 @@ def apply_auto_rotate_stand(image_cv):
     return image_cv
 
 def auto_scan_logic(file_bytes):
-    nparr = np.frombuffer(file_bytes, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    # Đọc và sửa lỗi EXIF ngay từ bước đầu
+    pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+    pil_original = ImageOps.exif_transpose(pil_original) 
+    
+    image = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
     
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -86,7 +89,7 @@ def apply_filters_and_brightness(warped_img_cv, mode, brightness_val):
         return pil_img
 
 # --- GIAO DIỆN CHÍNH ---
-st.markdown("<h1 style='text-align: center; color: #E91E63;'>👑 VIP Scanner Thống Nhất</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #E91E63;'>👑 Máy Quét VIP Linh Linh</h1>", unsafe_allow_html=True)
 
 uploaded_files = st.file_uploader("📤 Thêm ảnh vào đây", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
 
@@ -119,24 +122,30 @@ if uploaded_files:
             with col_img:
                 if manual_mode:
                     if "Kéo khung" in tool_choice:
-                        # 📱 DÙNG CHO ĐIỆN THOẠI
-                        st.info("📲 Vuốt ngón tay để bọc lấy tờ giấy nhé.")
+                        st.info("📲 Kéo khung để chọn vùng (Cắt xong máy sẽ xử lý).")
                         
-                        # --- FIX LỖI TYPEERROR: ÉP SANG RGB TRƯỚC KHI CẮT ---
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         
-                        cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', key=f"cropper_{i}")
+                        # --- TRỊ BỆNH XOAY NGANG (FIX EXIF) ---
+                        pil_original = ImageOps.exif_transpose(pil_original)
+                        
+                        # --- TRỊ BỆNH ĐỨNG KHUNG ---
+                        # Tắt realtime_update để vuốt trên điện thoại không bị lag
+                        cropped_pil = st_cropper(pil_original, realtime_update=False, box_color='#FF0000', key=f"cropper_{i}")
+                        
                         img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
                         img_cv_final = apply_auto_rotate_stand(img_cv_base)
                         
                     else:
-                        # 💻 DÙNG CHO MÁY TÍNH
                         st.info("💻 Click chuột vào 4 góc để nắn phẳng tờ giấy.")
                         
-                        # --- FIX LỖI ẢNH MÁY TÍNH CŨNG ÉP SANG RGB ---
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+                        
+                        # --- TRỊ BỆNH XOAY NGANG CHO MÁY TÍNH ---
+                        pil_original = ImageOps.exif_transpose(pil_original)
+                        
                         cv_original = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
                         
                         for pt in st.session_state[file_key]:
@@ -157,19 +166,15 @@ if uploaded_files:
 
                         if len(st.session_state[file_key]) == 4:
                             pts = np.array(st.session_state[file_key], dtype="float32")
-                            # Đọc lại ảnh RGB chuẩn để nắn
-                            cv_original_real = cv2.cvtColor(np.array(Image.open(io.BytesIO(file_bytes)).convert('RGB')), cv2.COLOR_RGB2BGR)
-                            warped_manual = perspective_transform(cv_original_real, pts)
+                            warped_manual = perspective_transform(cv_original, pts)
                             img_cv_final = apply_auto_rotate_stand(warped_manual)
                             st.success("Đã khóa 4 góc!")
                         else:
                             st.warning(f"Đã chấm {len(st.session_state[file_key])}/4 góc.")
                             img_cv_final = apply_auto_rotate_stand(cv_original)
                 else:
-                    # MẶC ĐỊNH LÀ TỰ ĐỘNG
                     img_cv_final = auto_scan_logic(file.getvalue())
 
-                # Chốt bộ lọc, độ sáng và xoay thêm
                 final_pil = apply_filters_and_brightness(img_cv_final, color_mode, brightness)
                 
                 if rotate_extra == "Xoay 90°": final_pil = final_pil.rotate(-90, expand=True)
@@ -180,7 +185,6 @@ if uploaded_files:
                 st.image(final_pil, use_column_width=True)
                 final_pages.append(final_pil)
 
-    # --- NÚT TẠO PDF ---
     st.write("---")
     if st.button("🚀 GOM TẤT CẢ VÀ TẠO FILE PDF", use_container_width=True, type="primary"):
         if final_pages:
