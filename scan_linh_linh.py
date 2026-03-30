@@ -4,8 +4,8 @@ import numpy as np
 from PIL import Image, ImageEnhance
 import io
 import gc
-from streamlit_image_coordinates import streamlit_image_coordinates
-from streamlit_cropper import st_cropper
+from streamlit_image_coordinates import streamlit_image_coordinates 
+from streamlit_cropper import st_cropper 
 from datetime import datetime
 
 # --- CẤU HÌNH GIAO DIỆN ---
@@ -86,14 +86,7 @@ def apply_filters_and_brightness(warped_img_cv, mode, brightness_val):
         return pil_img
 
 # --- GIAO DIỆN CHÍNH ---
-st.markdown("<h1 style='text-align: center; color: #E91E63;'>👑 Scanner VIP Linh Linh</h1>", unsafe_allow_html=True)
-
-device_type = st.radio(
-    "👉 **Chọn thiết bị cắt ảnh thủ công:**", 
-    ["💻 Máy tính (Click chuột 4 góc)", "📱 Điện thoại (Vuốt kéo khung)"], 
-    horizontal=True
-)
-st.write("---")
+st.markdown("<h1 style='text-align: center; color: #E91E63;'>👑 VIP Scanner Thống Nhất</h1>", unsafe_allow_html=True)
 
 uploaded_files = st.file_uploader("📤 Thêm ảnh vào đây", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
 
@@ -111,34 +104,40 @@ if uploaded_files:
             
             with col_ctrl:
                 st.write("🔧 **Căn chỉnh:**")
-                manual_mode = st.checkbox(f"📍 Sửa cắt thủ công", key=f"manual_{i}")
+                manual_mode = st.checkbox(f"📍 Sửa thủ công (Máy quét sai mới dùng)", key=f"manual_{i}")
+                
+                tool_choice = "Kéo khung đỏ (Điện thoại)" 
+                if manual_mode:
+                    tool_choice = st.radio("Bà đang dùng thiết bị gì?", 
+                                         ["Kéo khung đỏ (Dùng cho Điện thoại)", "Chấm 4 góc (Dùng cho Máy tính)"], 
+                                         key=f"tool_{i}")
+                
                 color_mode = st.radio(f"Chọn màu", ["Quét Trắng Đen (B&W)", "Giữ màu gốc"], key=f"color_{i}")
                 brightness = st.slider(f"☀️ Độ sáng", 0.5, 2.0, 1.0, 0.1, key=f"bright_{i}")
                 rotate_extra = st.selectbox(f"🔄 Xoay thêm", ["Chuẩn rồi", "Xoay 90°", "Xoay 180°", "Xoay 270°"], key=f"rot_{i}")
 
             with col_img:
                 if manual_mode:
-                    if "Điện thoại" in device_type:
-                        st.info("📲 Đang dùng công cụ Điện thoại: Kéo 4 góc khung đỏ để chọn vùng ảnh.")
-                        pil_original = Image.open(file)
+                    if "Kéo khung" in tool_choice:
+                        # 📱 DÙNG CHO ĐIỆN THOẠI
+                        st.info("📲 Vuốt ngón tay để bọc lấy tờ giấy nhé.")
                         
-                        # Bản xịn: should_resize_box=True cho phép kéo giãn thoải mái
-                        cropped_pil = st_cropper(
-                            pil_original, 
-                            realtime_update=True, 
-                            box_color='#FF0000', 
-                            aspect_ratio=None,
-                            should_resize_box=True, 
-                            key=f"cropper_{i}"
-                        )
+                        # --- FIX LỖI TYPEERROR: ÉP SANG RGB TRƯỚC KHI CẮT ---
+                        file_bytes = file.getvalue()
+                        pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         
-                        img_cv_base = cv2.cvtColor(np.array(cropped_pil.convert('RGB')), cv2.COLOR_RGB2BGR)
+                        cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', key=f"cropper_{i}")
+                        img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
                         img_cv_final = apply_auto_rotate_stand(img_cv_base)
                         
                     else:
-                        st.info("💻 Đang dùng công cụ Máy tính: Click chuột vào 4 góc để ghim.")
-                        pil_original = Image.open(file)
-                        cv_original = cv2.cvtColor(np.array(pil_original.convert('RGB')), cv2.COLOR_RGB2BGR)
+                        # 💻 DÙNG CHO MÁY TÍNH
+                        st.info("💻 Click chuột vào 4 góc để nắn phẳng tờ giấy.")
+                        
+                        # --- FIX LỖI ẢNH MÁY TÍNH CŨNG ÉP SANG RGB ---
+                        file_bytes = file.getvalue()
+                        pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
+                        cv_original = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
                         
                         for pt in st.session_state[file_key]:
                             cv2.circle(cv_original, pt, max(15, int(cv_original.shape[1]/50)), (0, 0, 255), -1)
@@ -158,16 +157,19 @@ if uploaded_files:
 
                         if len(st.session_state[file_key]) == 4:
                             pts = np.array(st.session_state[file_key], dtype="float32")
-                            cv_original_real = cv2.cvtColor(np.array(Image.open(file).convert('RGB')), cv2.COLOR_RGB2BGR)
+                            # Đọc lại ảnh RGB chuẩn để nắn
+                            cv_original_real = cv2.cvtColor(np.array(Image.open(io.BytesIO(file_bytes)).convert('RGB')), cv2.COLOR_RGB2BGR)
                             warped_manual = perspective_transform(cv_original_real, pts)
                             img_cv_final = apply_auto_rotate_stand(warped_manual)
                             st.success("Đã khóa 4 góc!")
                         else:
-                            st.warning(f"Bà đã chấm {len(st.session_state[file_key])}/4 góc.")
+                            st.warning(f"Đã chấm {len(st.session_state[file_key])}/4 góc.")
                             img_cv_final = apply_auto_rotate_stand(cv_original)
                 else:
+                    # MẶC ĐỊNH LÀ TỰ ĐỘNG
                     img_cv_final = auto_scan_logic(file.getvalue())
 
+                # Chốt bộ lọc, độ sáng và xoay thêm
                 final_pil = apply_filters_and_brightness(img_cv_final, color_mode, brightness)
                 
                 if rotate_extra == "Xoay 90°": final_pil = final_pil.rotate(-90, expand=True)
@@ -178,12 +180,13 @@ if uploaded_files:
                 st.image(final_pil, use_column_width=True)
                 final_pages.append(final_pil)
 
+    # --- NÚT TẠO PDF ---
     st.write("---")
     if st.button("🚀 GOM TẤT CẢ VÀ TẠO FILE PDF", use_container_width=True, type="primary"):
         if final_pages:
             with st.spinner("Đang đóng gói PDF Pro..."):
                 now = datetime.now().strftime("%d-%m_%Hh%M")
-                file_name_custom = f"Scanner_Pro_{now}.pdf"
+                file_name_custom = f"VIP_Scan_{now}.pdf"
 
                 pdf_io = io.BytesIO()
                 final_pages[0].save(pdf_io, format="PDF", save_all=True, append_images=final_pages[1:], resolution=300.0, quality=95)
