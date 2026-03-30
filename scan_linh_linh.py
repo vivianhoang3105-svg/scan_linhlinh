@@ -123,10 +123,19 @@ if uploaded_files:
             with col_img:
                 if manual_mode:
                     # Kiểm tra lựa chọn của bà ở radio button đầu trang
-                    if "Điện thoại" in device_type:
+                        if "Điện thoại" in device_type:
                         st.info("📲 Đang dùng công cụ Điện thoại: Kéo khung đỏ để chọn vùng ảnh.")
                         pil_original = Image.open(file)
-                        cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', aspect_ratio=None, key=f"cropper_{i}")
+                        cropped_pil = st_cropper(
+                            pil_original, 
+                            realtime_update=True, 
+                            box_color='#FF0000', 
+                            aspect_ratio=None,
+                            should_resize_box=True, # Bí kíp để khung tự do co giãn kéo thả đây!
+                            key=f"cropper_{i}"
+                        )
+                        # ---------------------------------------
+                        
                         img_cv_base = cv2.cvtColor(np.array(cropped_pil.convert('RGB')), cv2.COLOR_RGB2BGR)
                         img_cv_final = apply_auto_rotate_stand(img_cv_base)
                         
