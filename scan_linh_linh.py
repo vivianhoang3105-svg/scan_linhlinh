@@ -44,11 +44,9 @@ def auto_scan_logic(file_bytes):
     pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
     pil_original = ImageOps.exif_transpose(pil_original)
     
-    # Nén ảnh để OpenCV quét viền nhanh hơn
-    pil_original.thumbnail((1200, 1200))
+    pil_original.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
     
     image = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
-    
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edged = cv2.Canny(blurred, 50, 150)
@@ -80,12 +78,17 @@ def apply_filters_and_brightness(warped_img_cv, mode, brightness_val):
 
     if mode == "Quét Trắng Đen (B&W)":
         pil_img = pil_img.convert('L')
-        pil_img = ImageEnhance.Contrast(pil_img).enhance(2.2)
-        pil_img = ImageEnhance.Sharpness(pil_img).enhance(2.0)
+        # Tự động bù sáng nhẹ để nền giấy luôn trắng bóc mà không cần chỉnh tay
+        if brightness_val == 1.0:
+            pil_img = ImageEnhance.Brightness(pil_img).enhance(1.2)
+        
+        # Tăng tương phản ở mức vừa phải (1.8 thay vì 2.2 như trước)
+        pil_img = ImageEnhance.Contrast(pil_img).enhance(1.8)
+        
+        # BỎ HOÀN TOÀN HÀM LÀM NÉT (Sharpness) ĐỂ KHÔNG BỊ NHIỄU HẠT LẤM TẤM NỮA
         return pil_img.convert('RGB')
     else:
-        pil_img = ImageEnhance.Contrast(pil_img).enhance(1.3)
-        pil_img = ImageEnhance.Sharpness(pil_img).enhance(1.5)
+        pil_img = ImageEnhance.Contrast(pil_img).enhance(1.2)
         return pil_img
 
 # --- GIAO DIỆN CHÍNH ---
@@ -128,13 +131,11 @@ if uploaded_files:
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
                         
-                        # --- TRỊ BỆNH TRÀN MÀN HÌNH ĐIỆN THOẠI ---
-                        # Ép ảnh về chuẩn chiều ngang 700px để nằm gọn lỏn trong màn hình
-                        pil_original.thumbnail((700, 1000))
+                        # --- FIX TRÀN LỀ TUYỆT ĐỐI ---
+                        # Ép chiều ngang về 500px để lọt thỏm vào mọi màn hình điện thoại
+                        pil_original.thumbnail((500, 800), Image.Resampling.LANCZOS)
                         
                         try:
-                            # --- TRỊ BỆNH KHUNG BỊ CỨNG ---
-                            # aspect_ratio=None giúp khung đỏ kéo thả hình chữ nhật vô tư
                             cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', aspect_ratio=None, key=f"cropper_{i}")
                             img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
                         except Exception:
@@ -149,7 +150,7 @@ if uploaded_files:
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
-                        pil_original.thumbnail((800, 1200))
+                        pil_original.thumbnail((800, 1200), Image.Resampling.LANCZOS)
                         cv_original = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
                         
                         for pt in st.session_state[file_key]:
