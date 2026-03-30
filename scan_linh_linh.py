@@ -134,7 +134,7 @@ if uploaded_files:
                         # --- FIX LỖI MẤT ẢNH: Dùng box_algorithm để lấy full 100% ---
                         cropped_pil = st_cropper(
                             pil_original, 
-                            realtime_update=False, 
+                            realtime_update=True, 
                             box_color='#FF0000', 
                             box_algorithm=get_full_box, # Phép thuật nằm ở đây
                             key=f"cropper_{i}"
