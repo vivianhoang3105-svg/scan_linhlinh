@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image, ImageEnhance, ImageOps 
+from PIL import Image, ImageEnhance, ImageOps
 import io
 import gc
 from streamlit_image_coordinates import streamlit_image_coordinates 
@@ -10,12 +10,6 @@ from datetime import datetime
 
 # --- CẤU HÌNH GIAO DIỆN ---
 st.set_page_config(page_title="Scanner VIP Thống Nhất", page_icon="👑", layout="wide")
-
-# --- CÁC HÀM XỬ LÝ LÕI ---
-
-def get_full_box(img, aspect_ratio):
-    """Thần chú ép khung đỏ phải bao trọn 100% kích thước ảnh gốc"""
-    return 0, 0, img.width, img.height
 
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -48,7 +42,10 @@ def apply_auto_rotate_stand(image_cv):
 
 def auto_scan_logic(file_bytes):
     pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
-    pil_original = ImageOps.exif_transpose(pil_original) 
+    pil_original = ImageOps.exif_transpose(pil_original)
+    
+    # Tối ưu ảnh trước khi quét tự động cho nhanh
+    pil_original.thumbnail((1500, 1500))
     
     image = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
     
@@ -114,8 +111,8 @@ if uploaded_files:
                 
                 tool_choice = "Kéo khung đỏ (Điện thoại)" 
                 if manual_mode:
-                    tool_choice = st.radio("Bà đang dùng thiết bị gì?", 
-                                         ["Kéo khung đỏ (Dùng cho Điện thoại)", "Chấm 4 góc (Dùng cho Máy tính)"], 
+                    tool_choice = st.radio("Đang dùng thiết bị gì?", 
+                                         ["Kéo khung đỏ (Điện thoại)", "Chấm 4 góc (Máy tính)"], 
                                          key=f"tool_{i}")
                 
                 color_mode = st.radio(f"Chọn màu", ["Quét Trắng Đen (B&W)", "Giữ màu gốc"], key=f"color_{i}")
@@ -125,30 +122,34 @@ if uploaded_files:
             with col_img:
                 if manual_mode:
                     if "Kéo khung" in tool_choice:
-                        st.info("📲 Khung đỏ mặc định ôm trọn ảnh, hãy kéo mép khung vào vùng cần lấy.")
+                        st.info("📲 Kéo khung để chọn vùng (Cắt xong máy sẽ xử lý).")
                         
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
                         
-                        # --- FIX LỖI MẤT ẢNH: Dùng box_algorithm để lấy full 100% ---
-                        cropped_pil = st_cropper(
-                            pil_original, 
-                            realtime_update=True, 
-                            box_color='#FF0000', 
-                            box_algorithm=get_full_box, # Phép thuật nằm ở đây
-                            key=f"cropper_{i}"
-                        )
+                        # --- CHỐNG LỖI TYPE ERROR TRÊN IPHONE ---
+                        # Thu nhỏ ảnh lại mức an toàn để Canvas web không bị sập
+                        pil_original.thumbnail((1500, 1500))
                         
-                        img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
+                        try:
+                            cropped_pil = st_cropper(pil_original, realtime_update=True, box_color='#FF0000', key=f"cropper_{i}")
+                            img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
+                        except Exception:
+                            st.warning("Khung đang tải, đợi chút nha...")
+                            img_cv_base = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
+
                         img_cv_final = apply_auto_rotate_stand(img_cv_base)
                         
                     else:
-                        st.info("💻 Click chuột vào 4 góc để nắn phẳng tờ giấy.")
+                        st.info("💻 Click chuột vào 4 góc để nắn phẳng.")
                         
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
                         pil_original = ImageOps.exif_transpose(pil_original)
+                        
+                        # Thu nhỏ ảnh trên máy tính cho nhẹ
+                        pil_original.thumbnail((1500, 1500))
                         cv_original = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
                         
                         for pt in st.session_state[file_key]:
