@@ -1,7 +1,7 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image, ImageEnhance, ImageOps # Nhập thêm ImageOps để trị bệnh xoay ngang
+from PIL import Image, ImageEnhance, ImageOps 
 import io
 import gc
 from streamlit_image_coordinates import streamlit_image_coordinates 
@@ -12,6 +12,10 @@ from datetime import datetime
 st.set_page_config(page_title="Scanner VIP Thống Nhất", page_icon="👑", layout="wide")
 
 # --- CÁC HÀM XỬ LÝ LÕI ---
+
+def get_full_box(img, aspect_ratio):
+    """Thần chú ép khung đỏ phải bao trọn 100% kích thước ảnh gốc"""
+    return 0, 0, img.width, img.height
 
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -43,7 +47,6 @@ def apply_auto_rotate_stand(image_cv):
     return image_cv
 
 def auto_scan_logic(file_bytes):
-    # Đọc và sửa lỗi EXIF ngay từ bước đầu
     pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
     pil_original = ImageOps.exif_transpose(pil_original) 
     
@@ -122,17 +125,20 @@ if uploaded_files:
             with col_img:
                 if manual_mode:
                     if "Kéo khung" in tool_choice:
-                        st.info("📲 Kéo khung để chọn vùng (Cắt xong máy sẽ xử lý).")
+                        st.info("📲 Khung đỏ mặc định ôm trọn ảnh, hãy kéo mép khung vào vùng cần lấy.")
                         
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
-                        
-                        # --- TRỊ BỆNH XOAY NGANG (FIX EXIF) ---
                         pil_original = ImageOps.exif_transpose(pil_original)
                         
-                        # --- TRỊ BỆNH ĐỨNG KHUNG ---
-                        # Tắt realtime_update để vuốt trên điện thoại không bị lag
-                        cropped_pil = st_cropper(pil_original, realtime_update=False, box_color='#FF0000', key=f"cropper_{i}")
+                        # --- FIX LỖI MẤT ẢNH: Dùng box_algorithm để lấy full 100% ---
+                        cropped_pil = st_cropper(
+                            pil_original, 
+                            realtime_update=False, 
+                            box_color='#FF0000', 
+                            box_algorithm=get_full_box, # Phép thuật nằm ở đây
+                            key=f"cropper_{i}"
+                        )
                         
                         img_cv_base = cv2.cvtColor(np.array(cropped_pil), cv2.COLOR_RGB2BGR)
                         img_cv_final = apply_auto_rotate_stand(img_cv_base)
@@ -142,10 +148,7 @@ if uploaded_files:
                         
                         file_bytes = file.getvalue()
                         pil_original = Image.open(io.BytesIO(file_bytes)).convert('RGB')
-                        
-                        # --- TRỊ BỆNH XOAY NGANG CHO MÁY TÍNH ---
                         pil_original = ImageOps.exif_transpose(pil_original)
-                        
                         cv_original = cv2.cvtColor(np.array(pil_original), cv2.COLOR_RGB2BGR)
                         
                         for pt in st.session_state[file_key]:
